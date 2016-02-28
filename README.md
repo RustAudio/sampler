@@ -1,0 +1,1 @@
+# sampler [![Build Status](https://travis-ci.org/RustAudio/sampler.svg?branch=master)](https://travis-ci.org/RustAudio/sampler) [![Crates.io](https://img.shields.io/crates/v/sampler.svg)](https://crates.io/crates/sampler) [![Crates.io](https://img.shields.io/crates/l/sampler.svg)](https://github.com/RustAudio/sampler/blob/master/LICENSE)
