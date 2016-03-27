@@ -1,4 +1,3 @@
-extern crate hound;
 extern crate instrument;
 extern crate pitch_calc as pitch;
 extern crate sample;

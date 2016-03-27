@@ -151,8 +151,10 @@ impl<F> Map<F>
 }
 
 
+#[cfg(feature="wav")]
 mod wav {
-    use hound;
+    extern crate hound;
+
     use map;
     use pitch;
     use sample;
