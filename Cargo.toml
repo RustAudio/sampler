@@ -3,18 +3,31 @@ name = "sampler"
 version = "0.1.0"
 authors = ["mitchmindtree <mitchell.nordine@gmail.com>"]
 
-[features]
-default = ["wav"]
-wav = ["hound"]
-
 [dependencies]
 instrument = { path = "../instrument" }
-pitch_calc = "0.10.0"
+pitch_calc = { path = "../pitch_calc" }
+time_calc = { path = "../time_calc" }
+# pitch_calc = "0.10.0"
+# time_calc = "0.10.1"
 sample = "0.3.0"
-time_calc = "0.10.1"
 
 # optional dependencies
 hound = { optional = true, version = "1.1.0" }
+serde = { optional = true, version = "0.7.0" }
+serde_json = { optional = true, version = "0.7.0" }
+find_folder = { optional = true, version = "0.3.0" }
+
+[features]
+default = ["wav"]
+wav = ["hound"]
+serde_serialization = [
+    "serde",
+    "serde_json",
+    "time_calc/serde_serialization",
+    "pitch_calc/serde_serialization",
+    "instrument/serde_serialization",
+    "find_folder",
+]
 
 [dev-dependencies]
 find_folder = "0.3.0"
