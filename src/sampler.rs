@@ -2,18 +2,19 @@ use instrument::{self, Instrument};
 use map::{self, Map};
 use pitch;
 use sample::{self, Frame, Sample as PcmSample};
+use std;
 use time;
 use Velocity;
 
 /// A Sampler instrument.
-#[derive(Clone)]
-pub struct Sampler<M, NFG, F>
+#[derive(Clone, Debug)]
+pub struct Sampler<M, NFG, A>
     where NFG: instrument::NoteFreqGenerator,
-          F: Frame,
+          A: map::Audio,
 {
-    map: Map<F>,
-    voices: Voices<F>,
-    instrument: Instrument<M, NFG>,
+    pub instrument: Instrument<M, NFG>,
+    pub map: Map<A>,
+    voices: Voices<A>,
 }
 
 /// Samples that are currently active along with the `Hz` with which they were triggered.
@@ -25,16 +26,16 @@ pub struct Sampler<M, NFG, F>
 /// In `Poly` mode, each pair is mapped directly to each of the `Instrument`'s `voices` via their
 /// `Vec` indices.
 #[derive(Clone)]
-pub struct Voices<F>
-    where F: Frame,
+pub struct Voices<A>
+    where A: map::Audio,
 {
-    map: Vec<Option<PlayingSample<F>>>,
+    map: Vec<Option<PlayingSample<A>>>,
 }
 
 /// A sample that is currently being played back.
 #[derive(Clone)]
-pub struct PlayingSample<F>
-    where F: Frame,
+pub struct PlayingSample<A>
+    where A: map::Audio,
 {
     /// The pitch in hz at which the `note_on` was triggered.
     pub note_on_hz: pitch::Hz,
@@ -42,67 +43,74 @@ pub struct PlayingSample<F>
     base_hz: pitch::Hz,
     base_vel: Velocity,
     /// Rate-adjustable interpolation of audio.
-    pub rate_converter: sample::rate::Converter<Playhead<F>>,
+    pub rate_converter: sample::rate::Converter<Playhead<A>>,
 }
 
 /// An owned iterator that wraps an audio file but does not 
 #[derive(Clone)]
-pub struct Playhead<F>
-    where F: Frame,
+pub struct Playhead<A>
+    where A: map::Audio,
 {
     /// The position of the playhead over the `Sample`.
     pub idx: usize,
-    audio: map::Audio<F>,
+    audio: A,
 }
 
 /// An iterator yielding one frame from the `Sampler` at a time.
-pub struct Frames<'a, F: 'a, NF: 'a>
-    where F: Frame,
+pub struct Frames<'a, A: 'a, NF: 'a>
+    where A: map::Audio,
 {
-    voices: &'a mut Voices<F>,
+    voices: &'a mut Voices<A>,
     instrument_frames: instrument::Frames<'a, NF>,
 }
 
 
+impl<A> std::fmt::Debug for Voices<A>
+    where A: map::Audio,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "Voices {{ num: {:?} }}", self.map.len())
+    }
+}
 
-impl<NFG, F> Sampler<instrument::mode::Mono, NFG, F>
+impl<NFG, A> Sampler<instrument::mode::Mono, NFG, A>
     where NFG: instrument::NoteFreqGenerator,
-          F: Frame,
+          A: map::Audio,
 {
     /// Construct a `Sampler` with a `Mono::Legato` playback mode.
-    pub fn legato(nfg: NFG, map: Map<F>) -> Self {
+    pub fn legato(nfg: NFG, map: Map<A>) -> Self {
         Self::new(instrument::mode::Mono::legato(), nfg, map)
     }
 }
 
-impl<NFG, F> Sampler<instrument::mode::Mono, NFG, F>
+impl<NFG, A> Sampler<instrument::mode::Mono, NFG, A>
     where NFG: instrument::NoteFreqGenerator,
-          F: Frame,
+          A: map::Audio,
 {
     /// Construct a `Sampler` with a `Mono::Retrigger` playback mode.
-    pub fn retrigger(nfg: NFG, map: Map<F>) -> Self {
+    pub fn retrigger(nfg: NFG, map: Map<A>) -> Self {
         Self::new(instrument::mode::Mono::retrigger(), nfg, map)
     }
 }
 
-impl<NFG, F> Sampler<instrument::mode::Poly, NFG, F>
+impl<NFG, A> Sampler<instrument::mode::Poly, NFG, A>
     where NFG: instrument::NoteFreqGenerator,
-          F: Frame,
+          A: map::Audio,
 {
     /// Construct a `Sampler` with a `Poly` playback mode.
-    pub fn poly(nfg: NFG, map: Map<F>) -> Self {
+    pub fn poly(nfg: NFG, map: Map<A>) -> Self {
         Self::new(instrument::mode::Poly, nfg, map)
     }
 }
 
 
-impl<M, NFG, F> Sampler<M, NFG, F>
+impl<M, NFG, A> Sampler<M, NFG, A>
     where NFG: instrument::NoteFreqGenerator,
-          F: Frame,
+          A: map::Audio,
 {
 
     /// Construct a new `Sampler`.
-    pub fn new(mode: M, note_freq_gen: NFG, map: Map<F>) -> Self {
+    pub fn new(mode: M, note_freq_gen: NFG, map: Map<A>) -> Self {
         let instrument = Instrument::new(mode, note_freq_gen);
         let n_voices = instrument.voices.len();
         Sampler {
@@ -116,7 +124,7 @@ impl<M, NFG, F> Sampler<M, NFG, F>
     ///
     /// This is useful for providing wrapper builder methods for the Synth.
     #[inline]
-    pub fn map_instrument<Map, NewM, NewNFG>(self, f: Map) -> Sampler<NewM, NewNFG, F>
+    pub fn map_instrument<Map, NewM, NewNFG>(self, f: Map) -> Sampler<NewM, NewNFG, A>
         where Map: FnOnce(Instrument<M, NFG>) -> Instrument<NewM, NewNFG>,
               NewNFG: instrument::NoteFreqGenerator,
     {
@@ -139,21 +147,26 @@ impl<M, NFG, F> Sampler<M, NFG, F>
         self
     }
 
+    /// Return the number of voices for use within the `Sampler`.
+    pub fn voice_count(&self) -> usize {
+        self.voices.map.len()
+    }
+
     /// Detune the `note_on` hz by the given amount.
     pub fn detune(self, detune: f32) -> Self {
         self.map_instrument(|inst| inst.detune(detune))
     }
 
     /// Set the attack.
-    pub fn attack<A>(self, attack: A) -> Self
-        where A: Into<time::Ms>,
+    pub fn attack<Attack>(self, attack: Attack) -> Self
+        where Attack: Into<time::Ms>,
     {
         self.map_instrument(|inst| inst.attack(attack))
     }
 
     /// Set the release.
-    pub fn release<R>(self, release: R) -> Self
-        where R: Into<time::Ms>,
+    pub fn release<Release>(self, release: Release) -> Self
+        where Release: Into<time::Ms>,
     {
         self.map_instrument(|inst| inst.release(release))
     }
@@ -188,11 +201,21 @@ impl<M, NFG, F> Sampler<M, NFG, F>
         super::Mode::note_off(&mut instrument.mode, hz, map, &mut voices.map);
     }
 
+    /// Stop playback and clear the current notes.
+    #[inline]
+    pub fn stop(&mut self)
+        where M: instrument::Mode,
+    {
+        let Sampler { ref mut instrument, ref mut voices, .. } = *self;
+        instrument.stop();
+        voices.map.clear();
+    }
+
     /// Produces an iterator that yields `Frame`s of audio data.
-    pub fn frames(&mut self, sample_hz: f64) -> Frames<F, NFG::NoteFreq>
-        where F: Frame,
-              F::Sample: sample::Duplex<f64>,
-              <F::Sample as PcmSample>::Float: sample::FromSample<f32>,
+    pub fn frames(&mut self, sample_hz: f64) -> Frames<A, NFG::NoteFreq>
+        where A: map::Audio,
+              <A::Frame as Frame>::Sample: sample::Duplex<f64>,
+              <<A::Frame as Frame>::Sample as PcmSample>::Float: sample::FromSample<f32>,
     {
         Frames {
             voices: &mut self.voices,
@@ -211,10 +234,11 @@ impl<M, NFG, F> Sampler<M, NFG, F>
     }
 
     /// Fills the given slice of frames with the `Sampler::frames` iterator.
-    pub fn fill_slice(&mut self, output: &mut [F], sample_hz: f64)
+    pub fn fill_slice<F>(&mut self, output: &mut [F], sample_hz: f64)
         where F: Frame,
               F::Sample: sample::Duplex<f64>,
               <F::Sample as PcmSample>::Float: sample::FromSample<f32>,
+              A: map::Audio<Frame=F>,
     {
         let mut frames = self.frames(sample_hz);
         sample::slice::map_in_place(output, |f| {
@@ -227,14 +251,33 @@ impl<M, NFG, F> Sampler<M, NFG, F>
 }
 
 
+pub mod private {
+    use instrument::{self, Instrument};
+    use map::{self, Map};
 
-impl<F> PlayingSample<F>
-    where F: Frame,
+    /// A private constructor for use within serde.rs.
+    pub fn new<M, NFG, A>(instrument: Instrument<M, NFG>,
+                          map: Map<A>,
+                          num_voices: usize) -> super::Sampler<M, NFG, A>
+        where NFG: instrument::NoteFreqGenerator,
+              A: map::Audio,
+    {
+        super::Sampler {
+            instrument: instrument,
+            map: map,
+            voices: super::Voices { map: vec![None; num_voices] },
+        }
+    }
+}
+
+
+impl<A> PlayingSample<A>
+    where A: map::Audio,
 {
 
     /// Construct a new `PlayingSample` from the given note hz, velocity and the associated
     /// `Sample` from the `Map`.
-    pub fn new(hz: pitch::Hz, vel: Velocity, sample: map::Sample<F>) -> Self {
+    pub fn new(hz: pitch::Hz, vel: Velocity, sample: map::Sample<A>) -> Self {
         Self::from_playhead_idx(0, hz, vel, sample)
     }
 
@@ -245,7 +288,7 @@ impl<F> PlayingSample<F>
     pub fn from_playhead_idx(idx: usize,
                              hz: pitch::Hz,
                              vel: Velocity,
-                             sample: map::Sample<F>) -> Self
+                             sample: map::Sample<A>) -> Self
     {
         let map::Sample { base_hz, base_vel, audio } = sample;
         let playhead = Playhead::from_idx(idx, audio);
@@ -262,16 +305,16 @@ impl<F> PlayingSample<F>
 }
 
 
-impl<F> Playhead<F>
-    where F: Frame,
+impl<A> Playhead<A>
+    where A: map::Audio,
 {
     /// Wrap the given `Audio` with a `Playhead` starting from 0.
-    pub fn new(audio: map::Audio<F>) -> Self {
+    pub fn new(audio: A) -> Self {
         Self::from_idx(0, audio)
     }
 
     /// Wrap the given `Audio` with a `Playhead` starting from the given playhead index.
-    pub fn from_idx(idx: usize, audio: map::Audio<F>) -> Self {
+    pub fn from_idx(idx: usize, audio: A) -> Self {
         Playhead {
             idx: idx,
             audio: audio,
@@ -279,28 +322,28 @@ impl<F> Playhead<F>
     }
 }
 
-impl<F> Iterator for Playhead<F>
-    where F: Frame,
+impl<A> Iterator for Playhead<A>
+    where A: map::Audio,
 {
-    type Item = F;
+    type Item = A::Frame;
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let idx = self.idx;
         self.idx += 1;
-        self.audio.data.get(idx).map(|&f| f)
+        map::Audio::data(&self.audio).get(idx).map(|&f| f)
     }
 }
 
 
-impl<'a, F, NF> Frames<'a, F, NF>
-    where F: Frame,
-          F::Sample: sample::Duplex<f64>,
-          <F::Sample as PcmSample>::Float: sample::FromSample<f32>,
+impl<'a, A, NF> Frames<'a, A, NF>
+    where A: map::Audio,
+          <A::Frame as Frame>::Sample: sample::Duplex<f64>,
+          <<A::Frame as Frame>::Sample as PcmSample>::Float: sample::FromSample<f32>,
           NF: instrument::NoteFreq,
 {
     /// Yields the next audio `Frame`.
     #[inline]
-    pub fn next_frame(&mut self) -> F {
+    pub fn next_frame(&mut self) -> A::Frame {
         let Frames {
             ref mut voices,
             ref mut instrument_frames,
@@ -310,7 +353,7 @@ impl<'a, F, NF> Frames<'a, F, NF>
         voices.map.iter_mut()
             .zip(frame_per_voice)
             .filter_map(|(v, amp_hz)| amp_hz.map(|amp_hz| (v, amp_hz)))
-            .fold(F::equilibrium(), |frame, (voice, (amp, hz))| {
+            .fold(<A::Frame as Frame>::equilibrium(), |frame, (voice, (amp, hz))| {
                 match *voice {
                     None => return frame,
                     Some(ref mut voice) => {
@@ -321,7 +364,7 @@ impl<'a, F, NF> Frames<'a, F, NF>
                                 let amp = amp * voice.base_vel;
                                 let scaled = wave.scale_amp(amp.to_sample());
                                 return frame.zip_map(scaled, |f, s| {
-                                    f.add_amp(s.to_sample::<<F::Sample as PcmSample>::Signed>())
+                                    f.add_amp(s.to_sample::<<<A::Frame as Frame>::Sample as PcmSample>::Signed>())
                                 });
                             },
                             None => (),
@@ -336,63 +379,14 @@ impl<'a, F, NF> Frames<'a, F, NF>
     }
 }
 
-impl<'a, F, NF> Iterator for Frames<'a, F, NF>
-    where F: Frame,
-          F::Sample: sample::Duplex<f64>,
-          <F::Sample as PcmSample>::Float: sample::FromSample<f32>,
+impl<'a, A, NF> Iterator for Frames<'a, A, NF>
+    where A: map::Audio,
+          <A::Frame as Frame>::Sample: sample::Duplex<f64>,
+          <<A::Frame as Frame>::Sample as PcmSample>::Float: sample::FromSample<f32>,
           NF: instrument::NoteFreq,
 {
-    type Item = F;
+    type Item = A::Frame;
     fn next(&mut self) -> Option<Self::Item> {
         Some(self.next_frame())
     }
 }
-
-
-// pub fn fill_buffer_with_voice<NF, F>(
-//     voice: &mut instrument::Voice<NF>,
-//     output: &mut [F],
-//     sample: &map::Sample<F>,
-//     sample_hz: f64,
-//     n_channels: usize,
-//     loop_data: Option<&(instrument::unit::LoopStart, instrument::unit::LoopEnd)>,
-//     fade_data: Option<&(instrument::unit::Attack, instrument::unit::Release)>
-// ) where F: sample::Frame + sample::Duplex<f32>,
-//         NF: instrument::NoteFreq,
-// {
-//     let instrument::Voice {
-//         ref mut playhead,
-//         ref mut loop_playhead,
-//         ref mut maybe_note,
-//     } = *voice;
-// 
-//     let (attack, release) = fade_data.map_or_else(|| (0, 0), |&(a, r)| (a, r));
-//     let velocity = maybe_note.as_ref().map_or_else(|| 1.0, |&(_, _, _, velocity)| velocity);
-// 
-//     // Determine the velocity by which we will multiply each sample by normalising using the
-//     // `Sample`'s base velocity.
-//     let velocity = velocity / sample.base_vel;
-//     let base_hz = sample.base_hz.hz();
-// 
-//     let frame_ms = time::Samples(1).ms(sample_hz);
-// 
-//     for frame in output.chunks_mut(n_channels) {
-// 
-//         // Calculate the amplitude of the current frame.
-//         let wave = if maybe_note.is_some() && *loop_playhead < duration {
-// 
-//             let (note_state, hz) = maybe_note.as_mut()
-//                 .map(|&mut(note_state, _, ref mut freq, _)| {
-//                     freq.step_frame(frame_ms);
-//                     (note_state, freq.hz())
-//                 }).unwrap();
-// 
-//             let freq_multi = hz as f64 / base_hz as f64;
-// 
-//             //let wave = sample.audio.data[*
-// 
-//         };
-// 
-//     }
-// }
-
