@@ -251,6 +251,7 @@ impl<M, NFG, A> Sampler<M, NFG, A>
 }
 
 
+#[cfg(feature="serde_serialization")]
 pub mod private {
     use instrument::{self, Instrument};
     use map::{self, Map};
