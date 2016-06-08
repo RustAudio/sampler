@@ -10,16 +10,6 @@ pub struct Map<A> {
     pub pairs: Vec<SampleOverRange<A>>,
 }
 
-// /// Some slice of PCM samples that represents a single audio sample.
-// ///
-// /// **Note:** The `sampler` crate currently assumes that the `Audio` you give it has the same
-// /// format as the parameters with which audio is requested. We are hoping to enforce this using
-// /// types with some changes to the `sample` crate.
-// #[derive(Clone, Debug, PartialEq)]
-// pub struct Audio<F> {
-//     pub data: std::sync::Arc<Box<[F]>>,
-// }
-
 /// The audio data that provides the slice of frames that are to be rendered.
 ///
 /// By making this a trait instead of a hard type, we can allow users to use their own `Audio`
@@ -191,14 +181,16 @@ pub mod wav {
 
     impl<F> Audio<F>
         where F: sample::Frame,
-              F::Sample: sample::Duplex<f64> + hound::Sample,
+              F::Sample: sample::Duplex<f64> + sample::Duplex<i32>,
               Box<[F::Sample]>: sample::ToBoxedFrameSlice<F>,
     {
 
         /// Loads a `Sample` from the `.wav` file at the given `path`.
         ///
-        /// The PCM data retrieved from the file will be re-sampled upon loading (rather than at
-        /// playback) to the given target sample rate for efficiency.
+        /// The PCM data retrieved from the file will be:
+        /// - re-sized from its source bit rate to that of the target and
+        /// - re-sampled upon loading (rather than at playback) to the given target sample rate for
+        /// efficiency.
         pub fn from_file<P>(path: P, target_sample_hz: f64) -> Result<Self, hound::Error>
             where P: AsRef<std::path::Path>,
         {
@@ -216,8 +208,40 @@ pub mod wav {
 
             // Collect the samples in a loop so that we may handle any errors if necessary.
             let mut samples: Vec<F::Sample> = Vec::new();
-            for sample in wav_reader.samples() {
-                samples.push(try!(sample));
+
+            // Reads the samples to their correct format type, and then converts them to the target
+            // `F::Sample` type.
+            type WavReader = hound::WavReader<std::io::BufReader<std::fs::File>>;
+            fn fill_samples<S, H>(samples: &mut Vec<S>, mut wav_reader: WavReader)
+                    -> Result<(), hound::Error>
+                where S: sample::FromSample<i32>,
+                      H: sample::Sample + sample::ToSample<i32> + hound::Sample,
+            {
+                for sample in wav_reader.samples() {
+                    let read_sample: H = try!(sample);
+                    let i32_sample: i32 = sample::Sample::to_sample(read_sample);
+                    samples.push(sample::Sample::to_sample(i32_sample));
+                }
+                Ok(())
+            }
+
+            match spec.bits_per_sample {
+                8 => try!(fill_samples::<_, i8>(&mut samples, wav_reader)),
+                16 => try!(fill_samples::<_, i16>(&mut samples, wav_reader)),
+                32 => try!(fill_samples::<_, i32>(&mut samples, wav_reader)),
+                // The sample crate uses a specific type for 24 bit samples, so this 24-bit sample
+                // conversion requires this special case.
+                24 => {
+                    for sample in wav_reader.samples() {
+                        let read_sample: i32 = try!(sample);
+                        let i24_sample = try!(sample::I24::new(read_sample)
+                            .ok_or(hound::Error::FormatError("Incorrectly formatted 24-bit sample \
+                                                        received from hound::read::WavSamples")));
+                        let i32_sample: i32 = sample::Sample::to_sample(i24_sample);
+                        samples.push(sample::Sample::to_sample(i32_sample));
+                    }
+                },
+                _ => return Err(hound::Error::Unsupported),
             }
 
             let boxed_samples = samples.into_boxed_slice();
@@ -246,7 +270,7 @@ pub mod wav {
 
     impl<F> Sample<F>
         where F: sample::Frame,
-              F::Sample: sample::Duplex<f64> + hound::Sample,
+              F::Sample: sample::Duplex<f64> + sample::Duplex<i32>,
               Box<[F::Sample]>: sample::ToBoxedFrameSlice<F>,
     {
 
@@ -392,28 +416,26 @@ pub mod wav {
 
     // }
 
-
     ///// Utility functions.
-    
-    
-    /// Determines whether the given `Path` leads to a wave file.
-    fn has_wav_ext(path: &std::path::Path) -> bool {
-        let ext = path.extension()
-            .and_then(|s| s.to_str())
-            .map_or("".into(), std::ascii::AsciiExt::to_ascii_lowercase);
-        match &ext[..] {
-            "wav" | "wave" => true,
-            _ => false,
-        }
-    }
-    
+
+    // /// Determines whether the given `Path` leads to a wave file.
+    // fn has_wav_ext(path: &std::path::Path) -> bool {
+    //     let ext = path.extension()
+    //         .and_then(|s| s.to_str())
+    //         .map_or("".into(), std::ascii::AsciiExt::to_ascii_lowercase);
+    //     match &ext[..] {
+    //         "wav" | "wave" => true,
+    //         _ => false,
+    //     }
+    // }
+
     /// Scans the given path for an indication of its pitch.
     fn read_base_letter_octave(path: &std::path::Path) -> Option<pitch::LetterOctave> {
         use pitch::Letter::*;
         use std::ascii::AsciiExt;
-    
+
         let s = path.to_str().map_or("".into(), |s| s.to_ascii_lowercase());
-    
+
         // Check to see if the path contains a note for the given `letter` for any octave
         // between -8 and 24. If so, return the `LetterOctave`.
         let contains_letter = |letter: &str| -> Option<pitch::LetterOctave> {
@@ -440,18 +462,18 @@ pub mod wav {
             }
             None
         };
-    
+
         let list = [
             "c", "c#", "csh", "d", "d#", "dsh", "e", "f", "f#", "fsh", "g", "g#", "gsh",
             "a", "a#", "ash", "b",
         ];
-    
+
         for letter in &list[..] {
             if let Some(letter_octave) = contains_letter(letter) {
                 return Some(letter_octave);
             }
         }
-    
+
         None
     }
 
