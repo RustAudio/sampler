@@ -914,7 +914,6 @@ mod sampler {
 mod wav_audio {
     extern crate find_folder;
 
-    use hound;
     use map::wav;
     use sample;
     use super::serde;
@@ -957,7 +956,7 @@ mod wav_audio {
 
     impl<F> serde::Deserialize for wav::Audio<F>
         where F: sample::Frame + serde::Deserialize,
-              F::Sample: sample::Duplex<f64> + hound::Sample,
+              F::Sample: sample::Duplex<f64> + sample::Duplex<i32>,
               Box<[F::Sample]>: sample::ToBoxedFrameSlice<F>,
     {
         fn deserialize<D>(deserializer: &mut D) -> Result<Self, D::Error>
@@ -969,7 +968,7 @@ mod wav_audio {
 
             impl<F> serde::de::Visitor for Visitor<F>
                 where F: sample::Frame + serde::Deserialize,
-                      F::Sample: sample::Duplex<f64> + hound::Sample,
+                      F::Sample: sample::Duplex<f64> + sample::Duplex<i32>,
                       Box<[F::Sample]>: sample::ToBoxedFrameSlice<F>,
             {
                 type Value = wav::Audio<F>;
