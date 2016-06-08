@@ -1053,7 +1053,6 @@ mod wav_audio {
         let serialized = serde_json::to_string(&audio).unwrap();
 
         println!("{}", serialized);
-        assert_eq!("{\"path\":\"/Users/Mitch/Programming/Rust/sampler/assets/thumbpiano A#3.wav\",\"sample_hz\":44100}", serialized);
         
         let deserialized: wav::Audio<[i16; 2]> = serde_json::from_str(&serialized).unwrap();
 
