@@ -29,10 +29,10 @@ fn run() -> Result<(), pa::Error> {
     // Initialise PortAudio and create an output stream.
     let pa = try!(pa::PortAudio::new());
     let settings = 
-        try!(pa.default_output_stream_settings::<i16>(CHANNELS, SAMPLE_RATE, FRAMES_PER_BUFFER));
+        try!(pa.default_output_stream_settings::<f32>(CHANNELS, SAMPLE_RATE, FRAMES_PER_BUFFER));
 
     let callback = move |pa::OutputStreamCallbackArgs { buffer, .. }| {
-        let buffer: &mut [[i16; CHANNELS as usize]] =
+        let buffer: &mut [[f32; CHANNELS as usize]] =
             sample::slice::to_frame_slice_mut(buffer).unwrap();
         sample::slice::equilibrium(buffer);
 
