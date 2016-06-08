@@ -4,12 +4,10 @@ version = "0.1.0"
 authors = ["mitchmindtree <mitchell.nordine@gmail.com>"]
 
 [dependencies]
-instrument = { path = "../instrument" }
-pitch_calc = { path = "../pitch_calc" }
-time_calc = { path = "../time_calc" }
-# pitch_calc = "0.10.0"
-# time_calc = "0.10.1"
-sample = "0.3.0"
+instrument = "0.1.0"
+pitch_calc = "0.11.0"
+time_calc = "0.11.0"
+sample = "0.6.0"
 
 # optional dependencies
 hound = { optional = true, version = "1.1.0" }
