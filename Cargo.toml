@@ -4,11 +4,29 @@ version = "0.1.0"
 authors = ["mitchmindtree <mitchell.nordine@gmail.com>"]
 
 [dependencies]
-pitch_calc = "0.10.0"
-sample = "0.3.0"
-time_calc = "0.10.1"
+instrument = "0.1.0"
+pitch_calc = "0.11.0"
+time_calc = "0.11.0"
+sample = "0.6.0"
+
+# optional dependencies
+hound = { optional = true, version = "1.1.0" }
+serde = { optional = true, version = "0.7.0" }
+serde_json = { optional = true, version = "0.7.0" }
+find_folder = { optional = true, version = "0.3.0" }
+
+[features]
+default = ["wav"]
+wav = ["hound"]
+serde_serialization = [
+    "serde",
+    "serde_json",
+    "time_calc/serde_serialization",
+    "pitch_calc/serde_serialization",
+    "instrument/serde_serialization",
+    "find_folder",
+]
 
 [dev-dependencies]
 find_folder = "0.3.0"
-hound = "1.1.0"
 portaudio = "0.6.2"

@@ -9,5 +9,7 @@ os:
 
 script:
     - cargo build --verbose
+    - cargo build --no-default-features
     - cargo test --verbose
+    - cargo test --features="serde_serialization" --verbose
     - cargo doc --verbose
