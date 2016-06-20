@@ -1,7 +1,7 @@
 #[cfg(feature="wav")] extern crate hound;
-extern crate instrument;
+pub extern crate instrument;
+pub extern crate sample;
 extern crate pitch_calc as pitch;
-extern crate sample;
 extern crate time_calc as time;
 
 pub use map::{Audio, Map, Sample};
