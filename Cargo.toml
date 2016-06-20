@@ -2,6 +2,12 @@
 name = "sampler"
 version = "0.1.0"
 authors = ["mitchmindtree <mitchell.nordine@gmail.com>"]
+description = "A polyphonic audio sampler instrument that supports unique sample mappings across both frequency and velocity ranges."
+readme = "README.md"
+keywords = ["sample", "dsp", "audio", "music", "instrument"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/RustAudio/sampler.git"
+homepage = "https://github.com/RustAudio/sampler"
 
 [dependencies]
 instrument = "0.1.0"
