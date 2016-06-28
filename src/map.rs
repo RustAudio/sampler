@@ -1,7 +1,7 @@
 use pitch;
 use sample;
 use std;
-use Velocity;
+use {Step, Velocity};
 
 
 /// A type that maps frequncy and velocity ranges to audio samples.
@@ -32,15 +32,15 @@ pub struct Sample<A> {
 
 /// A 2-dimensional space, represented as a frequency range and a velocity range.
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
-pub struct HzVelRange {
-    pub hz: Range<pitch::Hz>,
+pub struct StepVelRange {
+    pub step: Range<Step>,
     pub vel: Range<Velocity>,
 }
 
 /// A range paired with a specific sample.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SampleOverRange<A> {
-    pub range: HzVelRange,
+    pub range: StepVelRange,
     pub sample: Sample<A>,
 }
 
@@ -61,10 +61,10 @@ impl<T> Audio for std::sync::Arc<T>
     }
 }
 
-impl Range<pitch::Hz> {
-    /// Is the given hz greater than or equal to the `min` and smaller than the `max`.
-    pub fn is_over(&self, hz: pitch::Hz) -> bool {
-        self.min <= hz && hz < self.max
+impl Range<Step> {
+    /// Is the given step greater than or equal to the `min` and smaller than the `max`.
+    pub fn is_over(&self, step: Step) -> bool {
+        self.min <= step && step <= self.max
     }
 }
 
@@ -110,27 +110,26 @@ impl<A> Map<A>
     }
 
     /// Construct a `Map` from a series of mappings, starting from (-C2, 1.0).
-    pub fn from_sequential_mappings<I>(mappings: I) -> Self
-        where I: IntoIterator<Item=(pitch::Hz, Velocity, Sample<A>)>,
+    pub fn from_sequential_steps<I>(mappings: I) -> Self
+        where I: IntoIterator<Item=(Step, Velocity, Sample<A>)>,
     {
-        const MIN_HZ: pitch::Hz = pitch::Hz(0.0);
-        let (mut last_hz, mut last_vel) = (MIN_HZ, 1.0);
-        let pairs = mappings.into_iter().map(|(hz, vel, sample)| {
-            let range = HzVelRange {
-                hz: Range { min: last_hz, max: hz },
+        let (mut last_step, mut last_vel) = (0, 1.0);
+        let pairs = mappings.into_iter().map(|(step, vel, sample)| {
+            let range = StepVelRange {
+                step: Range { min: last_step, max: step },
                 vel: Range { min: last_vel, max: vel },
             };
-            last_hz = hz;
+            last_step = step;
             last_vel = vel;
             SampleOverRange { range: range, sample: sample }
         }).collect();
         Map { pairs: pairs }
     }
 
-    /// Creates a `Map` with a single sample mapped to the entire Hz and Velocity range.
+    /// Creates a `Map` with a single sample mapped to the entire Step and Velocity range.
     pub fn from_single_sample(sample: Sample<A>) -> Self {
-        let range = HzVelRange {
-            hz: Range { min: pitch::Hz(0.0), max: pitch::Hz(std::f32::MAX) },
+        let range = StepVelRange {
+            step: Range { min: 0, max: 128 },
             vel: Range { min: 0.0, max: 1.0 },
         };
         let pairs = vec![SampleOverRange { range: range, sample: sample }];
@@ -138,7 +137,7 @@ impl<A> Map<A>
     }
 
     /// Inserts a range -> audio mapping into the Map.
-    pub fn insert(&mut self, range: HzVelRange, sample: Sample<A>) {
+    pub fn insert(&mut self, range: StepVelRange, sample: Sample<A>) {
         for i in 0..self.pairs.len() {
             if self.pairs[i].range > range {
                 self.pairs.insert(i, SampleOverRange { range: range, sample: sample });
@@ -152,8 +151,9 @@ impl<A> Map<A>
     ///
     /// TODO: This would probably be quicker with some sort of specialised RangeMap.
     pub fn sample(&self, hz: pitch::Hz, vel: Velocity) -> Option<Sample<A>> {
+        let step = hz.step().round() as Step;
         for &SampleOverRange { ref range, ref sample } in &self.pairs {
-            if range.hz.is_over(hz) && range.vel.is_over(vel) {
+            if range.step.is_over(step) && range.vel.is_over(vel) {
                 return Some(sample.clone());
             }
         }
