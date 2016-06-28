@@ -2,13 +2,19 @@ use instrument;
 use map;
 use sampler;
 
+/// An alias for a dynamic `Mode` type.
+pub type Mode = instrument::mode::Dynamic;
+
+/// An alias for a dynamic `NoteFreqGenerator` type.
+pub type NoteFreqGenerator = instrument::note_freq::DynamicGenerator;
+
 /// An alias for a `Sampler` type that uses a dynamic instrument and note frequency mode.
-pub type Sampler<A> =
-    sampler::Sampler<instrument::mode::Dynamic, instrument::note_freq::DynamicGenerator, A>;
+pub type Sampler<A> = sampler::Sampler<Mode, NoteFreqGenerator, A>;
 
 impl<A> Sampler<A>
     where A: map::Audio,
 {
+
     /// Construct a dynamic `Sampler`.
     pub fn dynamic(mode: instrument::mode::Dynamic, map: map::Map<A>) -> Self {
         let nfg = instrument::note_freq::DynamicGenerator::Constant;
@@ -29,4 +35,5 @@ impl<A> Sampler<A>
     pub fn dynamic_poly(map: map::Map<A>) -> Self {
         Self::dynamic(instrument::mode::Dynamic::poly(), map)
     }
+
 }
