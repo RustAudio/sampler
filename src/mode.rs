@@ -1,11 +1,12 @@
-pub use instrument::mode::{Mono, MonoKind, Poly, Dynamic};
+use audio::Audio;
 use instrument;
-use map::{self, Map};
+use map::Map;
 use pitch;
-use sample::Frame;
 use sampler::PlayingSample;
 use std;
 use Velocity;
+
+pub use instrument::mode::{Mono, MonoKind, Poly, Dynamic};
 
 /// The "mode" with which the Sampler will handle notes.
 pub trait Mode {
@@ -18,20 +19,20 @@ pub trait Mode {
                   note_velocity: Velocity,
                   map: &Map<A>,
                   voices: &mut [Option<PlayingSample<A>>])
-        where A: map::Audio;
+        where A: Audio;
 
     /// Handle a `note_off` event.
     fn note_off<A>(&self,
                    note_hz: pitch::Hz,
                    map: &Map<A>,
                    voices: &mut [Option<PlayingSample<A>>])
-        where A: map::Audio;
+        where A: Audio;
 }
 
 
 // Helper function for constructing a `PlayingSample`.
 fn play_sample<A>(hz: pitch::Hz, vel: Velocity, map: &Map<A>) -> Option<PlayingSample<A>>
-    where A: map::Audio,
+    where A: Audio,
 {
     play_sample_from_playhead_idx(0, hz, vel, map)
 }
@@ -41,7 +42,7 @@ fn play_sample_from_playhead_idx<A>(idx: usize,
                                     hz: pitch::Hz,
                                     vel: Velocity,
                                     map: &Map<A>) -> Option<PlayingSample<A>>
-    where A: map::Audio,
+    where A: Audio,
 {
     map.sample(hz, vel).map(|sample| PlayingSample::from_playhead_idx(idx, hz, vel, sample))
 }
@@ -54,7 +55,7 @@ impl Mode for Mono {
                   note_vel: Velocity,
                   map: &Map<A>,
                   voices: &mut [Option<PlayingSample<A>>])
-        where A: map::Audio,
+        where A: Audio,
     {
         let Mono(ref kind, ref note_stack) = *self;
 
@@ -88,7 +89,7 @@ impl Mode for Mono {
                    note_hz: pitch::Hz,
                    map: &Map<A>,
                    voices: &mut [Option<PlayingSample<A>>])
-        where A: map::Audio,
+        where A: Audio,
     {
         let Mono(kind, ref note_stack) = *self;
 
@@ -130,7 +131,7 @@ impl Mode for Poly {
                   note_vel: Velocity,
                   map: &Map<A>,
                   voices: &mut [Option<PlayingSample<A>>])
-        where A: map::Audio,
+        where A: Audio,
     {
         let sample = match play_sample(note_hz, note_vel, map) {
             Some(sample) => sample,
@@ -160,7 +161,7 @@ impl Mode for Poly {
                    _note_hz: pitch::Hz,
                    _map: &Map<A>,
                    _voices: &mut [Option<PlayingSample<A>>])
-        where A: map::Audio,
+        where A: Audio,
     {
         // No need to do anything here as voices will be set to `None` when frames yielded by
         // `instrument` run out.
@@ -175,7 +176,7 @@ impl Mode for Dynamic {
                   note_vel: Velocity,
                   map: &Map<A>,
                   voices: &mut [Option<PlayingSample<A>>])
-        where A: map::Audio,
+        where A: Audio,
     {
         match *self {
             Dynamic::Mono(ref mono) => mono.note_on(note_hz, note_vel, map, voices),
@@ -187,7 +188,7 @@ impl Mode for Dynamic {
                    note_hz: pitch::Hz,
                    map: &Map<A>,
                    voices: &mut [Option<PlayingSample<A>>])
-        where A: map::Audio,
+        where A: Audio,
     {
         match *self {
             Dynamic::Mono(ref mono) => mono.note_off(note_hz, map, voices),

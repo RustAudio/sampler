@@ -1,6 +1,171 @@
 extern crate serde;
 
 
+mod audio_range {
+    use audio::Range;
+    use super::serde;
+    use std;
+
+    impl<T> serde::Serialize for Range<T>
+        where T: serde::Serialize,
+    {
+        fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error>
+            where S: serde::Serializer,
+        {
+            struct Visitor<'a, T: 'a> {
+                t: &'a Range<T>,
+                field_idx: u8,
+            }
+
+            impl<'a, T> serde::ser::MapVisitor for Visitor<'a, T>
+                where T: serde::Serialize,
+            {
+                fn visit<S>(&mut self, serializer: &mut S) -> Result<Option<()>, S::Error>
+                    where S: serde::Serializer,
+                {
+                    match self.field_idx {
+                        0 => {
+                            self.field_idx += 1;
+                            Ok(Some(try!(serializer.serialize_struct_elt("start", &self.t.start))))
+                        },
+                        1 => {
+                            self.field_idx += 1;
+                            Ok(Some(try!(serializer.serialize_struct_elt("end", &self.t.end))))
+                        },
+                        2 => {
+                            self.field_idx += 1;
+                            Ok(Some(try!(serializer.serialize_struct_elt("audio", &self.t.audio))))
+                        },
+                        _ => Ok(None),
+                    }
+                }
+
+                fn len(&self) -> Option<usize> {
+                    Some(3)
+                }
+            }
+
+            serializer.serialize_struct("Range", Visitor { t: self, field_idx: 0 })
+        }
+    }
+
+    impl<T> serde::Deserialize for Range<T>
+        where T: serde::Deserialize,
+    {
+        fn deserialize<D>(deserializer: &mut D) -> Result<Self, D::Error>
+            where D: serde::Deserializer,
+        {
+            struct Visitor<T> {
+                t: std::marker::PhantomData<T>,
+            };
+
+            impl<T> serde::de::Visitor for Visitor<T>
+                where T: serde::Deserialize,
+            {
+                type Value = Range<T>;
+
+                fn visit_map<V>(&mut self, mut visitor: V) -> Result<Range<T>, V::Error>
+                    where V: serde::de::MapVisitor,
+                {
+                    let mut start = None;
+                    let mut end = None;
+                    let mut audio = None;
+
+                    enum Field { Start, End, Audio }
+
+                    impl serde::Deserialize for Field {
+                        fn deserialize<D>(deserializer: &mut D) -> Result<Field, D::Error>
+                            where D: serde::de::Deserializer,
+                        {
+                            struct FieldVisitor;
+
+                            impl serde::de::Visitor for FieldVisitor {
+                                type Value = Field;
+
+                                fn visit_str<E>(&mut self, value: &str) -> Result<Field, E>
+                                    where E: serde::de::Error,
+                                {
+                                    match value {
+                                        "start" => Ok(Field::Start),
+                                        "end" => Ok(Field::End),
+                                        "audio" => Ok(Field::Audio),
+                                        _ => Err(serde::de::Error::custom("expected start, end or audio")),
+                                    }
+                                }
+                            }
+
+                            deserializer.deserialize(FieldVisitor)
+                        }
+                    }
+
+                    loop {
+                        match try!(visitor.visit_key()) {
+                            Some(Field::Start) => { start = Some(try!(visitor.visit_value())); },
+                            Some(Field::End) => { end = Some(try!(visitor.visit_value())); },
+                            Some(Field::Audio) => { audio = Some(try!(visitor.visit_value())); },
+                            None => { break; }
+                        }
+                    }
+
+                    let start = match start {
+                        Some(start) => start,
+                        None => return Err(serde::de::Error::missing_field("start")),
+                    };
+
+                    let end = match end {
+                        Some(end) => end,
+                        None => return Err(serde::de::Error::missing_field("end")),
+                    };
+
+                    let audio = match audio {
+                        Some(audio) => audio,
+                        None => return Err(serde::de::Error::missing_field("audio")),
+                    };
+
+                    try!(visitor.end());
+
+                    Ok(Range {
+                        start: start,
+                        end: end,
+                        audio: audio,
+                    })
+                }
+            }
+
+            static FIELDS: &'static [&'static str] = &["start", "end", "audio"];
+
+            let visitor = Visitor { t: std::marker::PhantomData };
+
+            deserializer.deserialize_struct("Range", FIELDS, visitor)
+        }
+    }
+
+    #[test]
+    fn test() {
+        extern crate serde_json;
+
+        use audio::Audio;
+
+        impl Audio for () {
+            type Frame = [f32; 2];
+            fn data(&self) -> &[Self::Frame] { &[] }
+        }
+
+        let range = Range { start: 0, end: 0, audio: () };
+        let serialized = serde_json::to_string(&range).unwrap();
+
+        println!("{}", serialized);
+        assert_eq!("{\"start\":0,\"end\":0,\"audio\":null}", serialized);
+
+        let deserialized: Range<()> = serde_json::from_str(&serialized).unwrap();
+
+        println!("{:?}", deserialized);
+        assert_eq!(range, deserialized);
+    }
+
+
+}
+
 mod range {
     use super::serde;
     use map::Range;
@@ -286,13 +451,6 @@ mod sample {
     fn test() {
         extern crate serde_json;
 
-        use map;
-
-        impl map::Audio for () {
-            type Frame = [f32; 2];
-            fn data(&self) -> &[Self::Frame] { &[] }
-        }
-
         let sample = Sample { base_hz: 440.0.into(), base_vel: 1.0, audio: () };
         let serialized = serde_json::to_string(&sample).unwrap();
 
@@ -436,14 +594,14 @@ mod sample_over_range {
 
         use map;
 
-        // impl map::Audio for () {
+        // impl Audio for () {
         //     type Frame = [f32; 2];
         //     fn data(&self) -> &[Self::Frame] { &[] }
         // }
 
         let sample = map::Sample { base_hz: 440.0.into(), base_vel: 1.0, audio: () };
-        let range = map::HzVelRange {
-            hz: map::Range { min: 220.0.into(), max: 440.0.into() },
+        let range = map::StepVelRange {
+            step: map::Range { min: 0, max: 127 },
             vel: map::Range { min: 0.0, max: 1.0 },
         };
 
@@ -451,7 +609,7 @@ mod sample_over_range {
         let serialized = serde_json::to_string(&sample_over_range).unwrap();
 
         println!("{}", serialized);
-        assert_eq!("{\"range\":{\"hz\":{\"min\":220,\"max\":440},\"vel\":{\"min\":0,\"max\":1}},\"sample\":{\"base_hz\":440,\"base_vel\":1,\"audio\":null}}", serialized);
+        assert_eq!("{\"range\":{\"step\":{\"min\":0,\"max\":127},\"vel\":{\"min\":0,\"max\":1}},\"sample\":{\"base_hz\":440,\"base_vel\":1,\"audio\":null}}", serialized);
         
         let deserialized: SampleOverRange<()> = serde_json::from_str(&serialized).unwrap();
 
@@ -462,16 +620,16 @@ mod sample_over_range {
 }
 
 
-mod hz_vel_range {
+mod step_vel_range {
     use super::serde;
-    use map::HzVelRange;
+    use map::StepVelRange;
 
-    impl serde::Serialize for HzVelRange {
+    impl serde::Serialize for StepVelRange {
         fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error>
             where S: serde::Serializer,
         {
             struct Visitor<'a> {
-                t: &'a HzVelRange,
+                t: &'a StepVelRange,
                 field_idx: u8,
             }
 
@@ -482,7 +640,7 @@ mod hz_vel_range {
                     match self.field_idx {
                         0 => {
                             self.field_idx += 1;
-                            Ok(Some(try!(serializer.serialize_struct_elt("hz", &self.t.hz))))
+                            Ok(Some(try!(serializer.serialize_struct_elt("step", &self.t.step))))
                         },
                         1 => {
                             self.field_idx += 1;
@@ -497,26 +655,26 @@ mod hz_vel_range {
                 }
             }
 
-            serializer.serialize_struct("HzVelRange", Visitor { t: self, field_idx: 0 })
+            serializer.serialize_struct("StepVelRange", Visitor { t: self, field_idx: 0 })
         }
     }
 
-    impl serde::Deserialize for HzVelRange {
+    impl serde::Deserialize for StepVelRange {
         fn deserialize<D>(deserializer: &mut D) -> Result<Self, D::Error>
             where D: serde::Deserializer,
         {
             struct Visitor;
 
             impl serde::de::Visitor for Visitor {
-                type Value = HzVelRange;
+                type Value = StepVelRange;
 
-                fn visit_map<V>(&mut self, mut visitor: V) -> Result<HzVelRange, V::Error>
+                fn visit_map<V>(&mut self, mut visitor: V) -> Result<StepVelRange, V::Error>
                     where V: serde::de::MapVisitor,
                 {
-                    let mut hz = None;
+                    let mut step = None;
                     let mut vel = None;
 
-                    enum Field { Hz, Vel }
+                    enum Field { Step, Vel }
 
                     impl serde::Deserialize for Field {
                         fn deserialize<D>(deserializer: &mut D) -> Result<Field, D::Error>
@@ -531,9 +689,9 @@ mod hz_vel_range {
                                     where E: serde::de::Error,
                                 {
                                     match value {
-                                        "hz" => Ok(Field::Hz),
+                                        "step" => Ok(Field::Step),
                                         "vel" => Ok(Field::Vel),
-                                        _ => Err(serde::de::Error::custom("expected hz or vel")),
+                                        _ => Err(serde::de::Error::custom("expected step or vel")),
                                     }
                                 }
                             }
@@ -544,15 +702,15 @@ mod hz_vel_range {
 
                     loop {
                         match try!(visitor.visit_key()) {
-                            Some(Field::Hz) => { hz = Some(try!(visitor.visit_value())); },
+                            Some(Field::Step) => { step = Some(try!(visitor.visit_value())); },
                             Some(Field::Vel) => { vel = Some(try!(visitor.visit_value())); },
                             None => { break; }
                         }
                     }
 
-                    let hz = match hz {
-                        Some(hz) => hz,
-                        None => return Err(serde::de::Error::missing_field("hz")),
+                    let step = match step {
+                        Some(step) => step,
+                        None => return Err(serde::de::Error::missing_field("step")),
                     };
 
                     let vel = match vel {
@@ -562,15 +720,15 @@ mod hz_vel_range {
 
                     try!(visitor.end());
 
-                    Ok(HzVelRange { hz: hz, vel: vel })
+                    Ok(StepVelRange { step: step, vel: vel })
                 }
             }
 
-            static FIELDS: &'static [&'static str] = &["hz", "vel"];
+            static FIELDS: &'static [&'static str] = &["step", "vel"];
 
             let visitor = Visitor;
 
-            deserializer.deserialize_struct("HzVelRange", FIELDS, visitor)
+            deserializer.deserialize_struct("StepVelRange", FIELDS, visitor)
         }
     }
 
@@ -579,16 +737,16 @@ mod hz_vel_range {
         extern crate serde_json;
         use map;
 
-        let range = HzVelRange {
-            hz: map::Range { min: 220.0.into(), max: 440.0.into() },
+        let range = StepVelRange {
+            step: map::Range { min: 0, max: 127 },
             vel: map::Range { min: 0.0, max: 1.0 },
         };
         let serialized = serde_json::to_string(&range).unwrap();
 
         println!("{}", serialized);
-        assert_eq!("{\"hz\":{\"min\":220,\"max\":440},\"vel\":{\"min\":0,\"max\":1}}", serialized);
+        assert_eq!("{\"step\":{\"min\":0,\"max\":127},\"vel\":{\"min\":0,\"max\":1}}", serialized);
         
-        let deserialized: HzVelRange = serde_json::from_str(&serialized).unwrap();
+        let deserialized: StepVelRange = serde_json::from_str(&serialized).unwrap();
 
         println!("{:?}", deserialized);
         assert_eq!(range, deserialized);
@@ -728,8 +886,8 @@ mod map {
 
 
 mod sampler {
+    use audio::Audio;
     use instrument;
-    use map;
     use super::serde;
     use sampler::{self, Sampler};
     use std;
@@ -738,14 +896,14 @@ mod sampler {
         where M: serde::Serialize,
               NFG: serde::Serialize + instrument::NoteFreqGenerator,
               NFG::NoteFreq: serde::Serialize,
-              A: serde::Serialize + map::Audio,
+              A: serde::Serialize + Audio,
     {
         fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error>
             where S: serde::Serializer,
         {
             struct Visitor<'a, M: 'a, NFG: 'a, A: 'a>
                 where NFG: instrument::NoteFreqGenerator,
-                      A: map::Audio,
+                      A: Audio,
             {
                 t: &'a Sampler<M, NFG, A>,
                 field_idx: u8,
@@ -755,7 +913,7 @@ mod sampler {
                 where M: serde::Serialize,
                       NFG: serde::Serialize + instrument::NoteFreqGenerator,
                       NFG::NoteFreq: serde::Serialize,
-                      A: serde::Serialize + map::Audio,
+                      A: serde::Serialize + Audio,
             {
                 fn visit<S>(&mut self, serializer: &mut S) -> Result<Option<()>, S::Error>
                     where S: serde::Serializer,
@@ -791,7 +949,7 @@ mod sampler {
         where M: serde::Deserialize,
               NFG: serde::Deserialize + instrument::NoteFreqGenerator,
               NFG::NoteFreq: serde::Deserialize,
-              A: serde::Deserialize + map::Audio,
+              A: serde::Deserialize + Audio,
     {
         fn deserialize<D>(deserializer: &mut D) -> Result<Self, D::Error>
             where D: serde::Deserializer,
@@ -806,7 +964,7 @@ mod sampler {
                 where M: serde::Deserialize,
                       NFG: serde::Deserialize + instrument::NoteFreqGenerator,
                       NFG::NoteFreq: serde::Deserialize,
-                      A: serde::Deserialize + map::Audio,
+                      A: serde::Deserialize + Audio,
             {
                 type Value = Sampler<M, NFG, A>;
 
@@ -914,7 +1072,7 @@ mod sampler {
 mod wav_audio {
     extern crate find_folder;
 
-    use map::wav;
+    use audio::wav;
     use sample;
     use super::serde;
     use std;

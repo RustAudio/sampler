@@ -1,6 +1,6 @@
 [package]
 name = "sampler"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["mitchmindtree <mitchell.nordine@gmail.com>"]
 description = "A polyphonic audio sampler instrument that supports unique sample mappings across both frequency and velocity ranges."
 readme = "README.md"
@@ -10,13 +10,13 @@ repository = "https://github.com/RustAudio/sampler.git"
 homepage = "https://github.com/RustAudio/sampler"
 
 [dependencies]
-instrument = "0.1.0"
+instrument = "0.2.0"
 pitch_calc = "0.11.0"
 time_calc = "0.11.0"
 sample = "0.6.0"
 
 # optional dependencies
-hound = { optional = true, version = "1.1.0" }
+hound = { optional = true, version = "2.0.0" }
 serde = { optional = true, version = "0.7.0" }
 serde_json = { optional = true, version = "0.7.0" }
 find_folder = { optional = true, version = "0.3.0" }
@@ -35,4 +35,4 @@ serde_serialization = [
 
 [dev-dependencies]
 find_folder = "0.3.0"
-portaudio = "0.6.2"
+portaudio = "0.6.4"
