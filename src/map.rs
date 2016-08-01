@@ -86,6 +86,18 @@ impl<A> Sample<A> {
         }
     }
 
+    /// Maps the `Sample` with some `Audio` type `A` to a `Sample` with some `Audio` type `B`.
+    pub fn map_audio<F, B>(self, map: F) -> Sample<B>
+        where F: FnOnce(A) -> B,
+    {
+        let Sample { base_hz, base_vel, audio } = self;
+        Sample {
+            base_hz: base_hz,
+            base_vel: base_vel,
+            audio: map(audio),
+        }
+    }
+
 }
 
 impl<A> Map<A>

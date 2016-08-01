@@ -44,6 +44,8 @@ pub struct PlayingSample<A>
     base_vel: Velocity,
     /// Rate-adjustable interpolation of audio.
     pub rate_converter: sample::rate::Converter<Playhead<A>>,
+    /// The time at which the `PlayingSample` was constructed.
+    pub time_of_note_on: std::time::Instant,
 }
 
 /// An owned iterator that wraps an audio file but does not 
@@ -197,8 +199,8 @@ impl<M, NFG, A> Sampler<M, NFG, A>
     {
         let Sampler { ref mut instrument, ref mut voices, ref map, .. } = *self;
         let hz = note_hz.into();
-        instrument.note_off(hz);
         super::Mode::note_off(&mut instrument.mode, hz, map, &mut voices.map);
+        instrument.note_off(hz);
     }
 
     /// Stop playback and clear the current notes.
@@ -300,6 +302,7 @@ impl<A> PlayingSample<A>
             base_hz: base_hz,
             base_vel: base_vel,
             rate_converter: rate_converter,
+            time_of_note_on: std::time::Instant::now(),
         }
     }
 
@@ -351,26 +354,28 @@ impl<'a, A, NF> Frames<'a, A, NF>
         } = *self;
 
         let frame_per_voice = instrument_frames.next_frame_per_voice();
+        let equilibrium = <A::Frame as Frame>::equilibrium();
         voices.map.iter_mut()
             .zip(frame_per_voice)
-            .filter_map(|(v, amp_hz)| amp_hz.map(|amp_hz| (v, amp_hz)))
-            .fold(<A::Frame as Frame>::equilibrium(), |frame, (voice, (amp, hz))| {
-                match *voice {
-                    None => return frame,
-                    Some(ref mut voice) => {
-                        let playback_hz_scale = hz / voice.base_hz.hz();
-                        voice.rate_converter.set_playback_hz_scale(playback_hz_scale as f64);
-                        match voice.rate_converter.next_frame() {
-                            Some(wave) => {
-                                let amp = amp * voice.base_vel;
-                                let scaled = wave.scale_amp(amp.to_sample());
-                                return frame.zip_map(scaled, |f, s| {
-                                    f.add_amp(s.to_sample::<<<A::Frame as Frame>::Sample as PcmSample>::Signed>())
-                                });
-                            },
-                            None => (),
-                        }
-                    },
+            .fold(equilibrium, |frame, (voice, amp_hz)| {
+                if let Some((amp, hz)) = amp_hz {
+                    match *voice {
+                        None => return frame,
+                        Some(ref mut voice) => {
+                            let playback_hz_scale = hz / voice.base_hz.hz();
+                            voice.rate_converter.set_playback_hz_scale(playback_hz_scale as f64);
+                            match voice.rate_converter.next_frame() {
+                                Some(wave) => {
+                                    let amp = amp * voice.base_vel;
+                                    let scaled = wave.scale_amp(amp.to_sample());
+                                    return frame.zip_map(scaled, |f, s| {
+                                        f.add_amp(s.to_sample::<<<A::Frame as Frame>::Sample as PcmSample>::Signed>())
+                                    });
+                                },
+                                None => return frame,
+                            }
+                        },
+                    }
                 }
 
                 // If we made it this far, the voice has finished playback of the note.

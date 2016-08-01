@@ -1,8 +1,10 @@
 pub use instrument::mode::{Mono, MonoKind, Poly, Dynamic};
+use instrument;
 use map::{self, Map};
 use pitch;
 use sample::Frame;
 use sampler::PlayingSample;
+use std;
 use Velocity;
 
 /// The "mode" with which the Sampler will handle notes.
@@ -54,12 +56,31 @@ impl Mode for Mono {
                   voices: &mut [Option<PlayingSample<A>>])
         where A: map::Audio,
     {
-        let sample = match play_sample(note_hz, note_vel, map) {
-            Some(sample) => sample,
-            None => return,
+        let Mono(ref kind, ref note_stack) = *self;
+
+        // If we're in `Legato` mode, begin the note from the same index as the previous note's
+        // current state if there is one.
+        let sample = if let instrument::mode::MonoKind::Legato = *kind {
+            note_stack.last()
+                .and_then(|&last_hz| {
+                    voices.iter()
+                        .filter_map(|v| v.as_ref())
+                        .find(|sample| instrument::mode::does_hz_match(sample.note_on_hz.hz(), last_hz))
+                        .and_then(|sample| {
+                            let idx = sample.rate_converter.source().idx;
+                            play_sample_from_playhead_idx(idx, note_hz, note_vel, map)
+                        })
+                })
+                .or_else(|| play_sample(note_hz, note_vel, map))
+        // Otherwise, we're in `Retrigger` mode, so start from the beginning of the sample.
+        } else {
+            play_sample(note_hz, note_vel, map)
         };
-        for voice in voices {
-            *voice = Some(sample.clone());
+
+        if let Some(sample) = sample {
+            for voice in voices {
+                *voice = Some(sample.clone());
+            }
         }
     }
 
@@ -71,32 +92,33 @@ impl Mode for Mono {
     {
         let Mono(kind, ref note_stack) = *self;
 
-        let should_reset = voices.iter().next()
-            .and_then(|v| v.as_ref().map(|v| v.note_on_hz == note_hz))
-            .unwrap_or(false);
+        let should_reset = voices.iter()
+            .filter_map(|v| v.as_ref())
+            .any(|v| instrument::mode::does_hz_match(v.note_on_hz.hz(), note_hz.hz()));
 
-        if should_reset {
-            let maybe_fallback_note_hz = note_stack.iter().last();
+        if !should_reset {
+            return;
+        }
+
+        // If there is some note to fall back to, do so.
+        if let Some(&fallback_note_hz) = note_stack.last() {
+            let hz = fallback_note_hz.into();
             for voice in voices {
-                // If there's some fallback note in the note stack, play it.
                 if let Some(ref mut playing_sample) = *voice {
-                    if let Some(&hz) = maybe_fallback_note_hz {
-                        let hz = pitch::Hz(hz.into());
-                        let idx = match kind {
-                            MonoKind::Legato => playing_sample.rate_converter.source().idx,
-                            MonoKind::Retrigger => 0,
-                        };
-                        let vel = playing_sample.note_on_vel;
-                        if let Some(sample) = play_sample_from_playhead_idx(idx, hz, vel, map) {
-                            *playing_sample = sample;
-                            continue;
-                        }
+                    let idx = match kind {
+                        MonoKind::Retrigger => 0,
+                        MonoKind::Legato => playing_sample.rate_converter.source().idx,
+                    };
+                    let vel = playing_sample.note_on_vel;
+                    if let Some(sample) = play_sample_from_playhead_idx(idx, hz, vel, map) {
+                        *playing_sample = sample;
                     }
                 }
-                // Otherwise, set the voices to `None`.
-                *voice = None;
             }
         }
+
+        // No need to manually set voices to `None` as this will be done when frames yielded by
+        // `instrument` run out.
     }
 
 }
@@ -117,20 +139,16 @@ impl Mode for Poly {
 
         // Find the right voice to play the note.
         let mut oldest = None;
-        let mut max_sample_count = 0;
+        let mut oldest_time_of_note_on = std::time::Instant::now();
         for voice in voices.iter_mut() {
-            match *voice {
-                None => {
-                    *voice = Some(sample);
-                    return;
-                },
-                Some(ref mut playing_sample) => {
-                    let playhead = playing_sample.rate_converter.source().idx;
-                    if playhead >= max_sample_count {
-                        max_sample_count = playhead;
-                        oldest = Some(playing_sample);
-                    }
-                },
+            if let None = *voice {
+                *voice = Some(sample);
+                return;
+            }
+            let time_of_note_on = voice.as_ref().unwrap().time_of_note_on;
+            if time_of_note_on < oldest_time_of_note_on {
+                oldest_time_of_note_on = time_of_note_on;
+                oldest = voice.as_mut();
             }
         }
         if let Some(voice) = oldest {
@@ -139,17 +157,13 @@ impl Mode for Poly {
     }
 
     fn note_off<A>(&self,
-                   note_hz: pitch::Hz,
+                   _note_hz: pitch::Hz,
                    _map: &Map<A>,
-                   voices: &mut [Option<PlayingSample<A>>])
+                   _voices: &mut [Option<PlayingSample<A>>])
         where A: map::Audio,
     {
-        for voice in voices {
-            let should_reset = voice.as_ref().map(|v| v.note_on_hz == note_hz).unwrap_or(false);
-            if should_reset {
-                *voice = None;
-            }
-        }
+        // No need to do anything here as voices will be set to `None` when frames yielded by
+        // `instrument` run out.
     }
 
 }
