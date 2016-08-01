@@ -1,3 +1,4 @@
+use audio;
 use instrument;
 use map;
 use sampler;
@@ -12,7 +13,7 @@ pub type NoteFreqGenerator = instrument::note_freq::DynamicGenerator;
 pub type Sampler<A> = sampler::Sampler<Mode, NoteFreqGenerator, A>;
 
 impl<A> Sampler<A>
-    where A: map::Audio,
+    where A: audio::Audio,
 {
 
     /// Construct a dynamic `Sampler`.
